@@ -49,7 +49,7 @@ build uses (Automatic: the update the game was last built from, else the newest 
 
 **Graphics:** games start with `DM_VK_GPL=0` (whole pipelines instead of linked pipeline libraries): with Mesa 26.3's Turnip, linked pipelines drew
 some games' scenery wrong. `DM_VK_GPL=1` in a game's extra environment turns them back on. Mystery Dungeon DX also starts with `DM_VK_POOL_FB=0` (its menu art and effects were scrambled
-with the texture pool reads on) and `DM_VK_CS_ASYNC=0` (its models burst into spikes now and then with compute work run beside the draws); if another game shows scrambled menus or effects, try that line in its extra environment.
+with the texture pool reads on), `DM_VK_CS_ASYNC=0` (its models burst into spikes now and then with compute work run beside the draws) and `DM_VK_QUAD_SHFL=0` (speckled tree leaves and blue streaks); if another game shows scrambled menus or effects, try that line in its extra environment.
 
 **Updates:** when Peanuts Native (igawa6/peanuts-native), the Eden Duo companions or this port change, GitHub Actions builds a new
 AppImage on a native arm64 machine (`ci/build.sh`, `.github/workflows/release.yml`, checked every 6 hours) and publishes it as a release. The app
