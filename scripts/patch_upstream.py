@@ -41,6 +41,46 @@ EDITS = [
      '        VkAndroidSurfaceCreateInfoKHR si = {VK_STRUCTURE_TYPE_ANDROID_SURFACE_CREATE_INFO_KHR, .window = w};\n'
      '        VkResult r = vk.vkCreateAndroidSurfaceKHR(V.inst, &si, NULL, &g_surf); VkBool32 ok = VK_FALSE;\n'
      '#endif\n'),
+    # A command record the replay cannot read (a list's jump or handle into memory that is gone: Mystery Dungeon DX read 0x4160xxxxxx, outside the guest address space,
+    # about 77 s in, twice, with the replay worker on and off): the rest of that list is dropped (one frame's draws) instead of the process ending. Only an address with
+    # nothing mapped (mincore: ENOMEM) is taken; a mapped page another hook guards (pool swaps, dirty tracking) goes on to that hook
+    ("dm/gfx/vk_android/vka_exec.c",
+     'static int exec(const uint8_t *p, int depth) {   // 1: parked at a wait (g_pk holds where it goes on)\n'
+     '    for (;;) {\n'
+     '        op_hdr h; memcpy(&h, p, sizeof h);\n',
+     '#ifdef PEANUTS_LINUX   // PNL: guarded record reads (scripts/patch_upstream.py)\n'
+     '#include <setjmp.h>\n#include <signal.h>\n#include <errno.h>\n#include <sys/mman.h>\n#include <unistd.h>\n'
+     'void dm_fault_hook_register(int (*fn)(void *addr, int is_write, void *uc));\n'
+     'static __thread jmp_buf *g_hdr_guard;\n'
+     'static _Atomic uint64_t g_hdr_faults;\n'
+     'static int hdr_fault(void *addr, int is_write, void *uc) {\n'
+     '    (void)uc; jmp_buf *j = g_hdr_guard; if (!j || is_write) return 0;\n'
+     '    unsigned char v; long pg = sysconf(_SC_PAGESIZE); int e = errno;\n'
+     '    int gone = mincore((void *)((uintptr_t)addr & ~(uintptr_t)(pg - 1)), (size_t)pg, &v) != 0 && errno == ENOMEM; errno = e;\n'
+     '    if (!gone) return 0;\n'
+     '    g_hdr_guard = NULL; _longjmp(*j, 1);\n'
+     '}\n'
+     'static int hdr_read(op_hdr *h, const uint8_t *p) {\n'
+     '    static _Atomic int hooked; if (!atomic_load(&hooked)) { int z = 0; if (atomic_compare_exchange_strong(&hooked, &z, 1)) dm_fault_hook_register(hdr_fault); }\n'
+     '    jmp_buf j;\n'
+     '    if (_setjmp(j)) {\n'
+     '        sigset_t m; sigemptyset(&m); sigaddset(&m, SIGSEGV); sigaddset(&m, SIGBUS); pthread_sigmask(SIG_UNBLOCK, &m, NULL);\n'
+     '        uint64_t n = atomic_fetch_add(&g_hdr_faults, 1);\n'
+     '        if (n < 8 || n % 100 == 0) VRED("command record at %p not readable (nothing mapped there): the rest of its list dropped (%llu so far)", (const void *)p, (unsigned long long)n + 1);\n'
+     '        return 0;\n'
+     '    }\n'
+     '    g_hdr_guard = &j; atomic_signal_fence(memory_order_seq_cst);   // (the fences keep the compiler from dropping the guard store around the load)\n'
+     '    memcpy(h, p, sizeof *h); atomic_signal_fence(memory_order_seq_cst); g_hdr_guard = NULL;\n'
+     '    return 1;\n'
+     '}\n'
+     '#endif\n'
+     'static int exec(const uint8_t *p, int depth) {   // 1: parked at a wait (g_pk holds where it goes on)\n'
+     '    for (;;) {\n'
+     '#ifdef PEANUTS_LINUX\n'
+     '        op_hdr h; if (!hdr_read(&h, p)) return 0;   // PNL\n'
+     '#else\n'
+     '        op_hdr h; memcpy(&h, p, sizeof h);\n'
+     '#endif\n'),
     # ANativeWindow_setFrameRate is not in libnativewindow on Linux: the dlopen of it simply fails (no edit). The frame rate of the panel is the compositor's.
 ]
 
