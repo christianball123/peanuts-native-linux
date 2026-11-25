@@ -1,0 +1,68 @@
+# Builds and publishes Peanuts Native for Linux whenever Peanuts Native (igawa6/peanuts-native), the Eden Duo companions or this port change.
+# Every 6 hours it looks at the three; a release's notes name the commits it was built from, so an unchanged set is not built again.
+# The build runs on GitHub's native arm64 runner (ci/build.sh); if it fails (an upstream change the port's edits do not fit), nothing is published
+# and the app keeps offering the last good release.
+name: release
+on:
+  schedule:
+    - cron: '17 */6 * * *'
+  workflow_dispatch:
+    inputs:
+      force:
+        description: 'Build and publish even when nothing changed'
+        type: boolean
+        default: false
+  push:
+    branches: [main]
+    paths-ignore: ['**.md', 'LICENSE']
+permissions:
+  contents: write
+concurrency:
+  group: release
+  cancel-in-progress: false
+jobs:
+  check:
+    runs-on: ubuntu-24.04
+    outputs:
+      build: ${{ steps.c.outputs.build }}
+      upstream: ${{ steps.c.outputs.upstream }}
+      companions: ${{ steps.c.outputs.companions }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: c
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          up=$(git ls-remote https://github.com/igawa6/peanuts-native.git HEAD | cut -f1)
+          edc=$(git ls-remote https://github.com/igawa6/eden-duo-companions.git HEAD | cut -f1)
+          port=$(git rev-parse HEAD)
+          echo "upstream=$up" >> "$GITHUB_OUTPUT"; echo "companions=$edc" >> "$GITHUB_OUTPUT"
+          last=$(gh release view --repo "$GITHUB_REPOSITORY" --json body -q .body 2>/dev/null || true)
+          build=true
+          if [ "${{ github.event_name }}" = schedule ] || { [ "${{ github.event_name }}" = workflow_dispatch ] && [ "${{ inputs.force }}" != true ]; }; then
+            if echo "$last" | grep -q "${up:0:12}" && echo "$last" | grep -q "${edc:0:12}" && echo "$last" | grep -q "${port:0:12}"; then build=false; fi
+          fi
+          echo "peanuts-native ${up:0:12}, companions ${edc:0:12}, port ${port:0:12}: build=$build"
+          echo "build=$build" >> "$GITHUB_OUTPUT"
+  build:
+    needs: check
+    if: needs.check.outputs.build == 'true'
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 240
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/cache@v4
+        with:
+          path: work/dl
+          key: downloads-v1
+      - name: build
+        run: |
+          v="$(cat VERSION).${{ github.run_number }}"
+          echo "VERSION=$v" >> "$GITHUB_ENV"
+          UPSTREAM_REF=${{ needs.check.outputs.upstream }} COMPANIONS_REF=${{ needs.check.outputs.companions }} ci/build.sh "$v" out
+      - name: publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "v$VERSION" out/PeanutsNative-aarch64.AppImage out/PeanutsNative-aarch64.AppImage.sha256 out/upstream.txt \
+            --repo "$GITHUB_REPOSITORY" --title "Peanuts Native for Linux $VERSION" --notes-file out/notes.md --latest

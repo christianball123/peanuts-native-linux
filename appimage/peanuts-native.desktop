@@ -1,0 +1,12 @@
+[Desktop Entry]
+Type=Application
+Name=Peanuts Native
+GenericName=Switch game rebuilder
+Comment=Rebuild Switch games you own into native Linux apps for ARM handhelds
+Exec=peanuts-native
+Icon=peanuts-native
+Terminal=false
+Categories=Game;Emulator;
+Keywords=switch;native;recomp;peanuts;banana;nxnative;
+StartupWMClass=io.github.peanuts_native.linux
+X-AppImage-Version=1.0.0

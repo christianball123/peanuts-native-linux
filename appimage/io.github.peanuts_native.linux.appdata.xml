@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+  <id>io.github.peanuts_native.linux</id>
+  <name>Peanuts Native</name>
+  <summary>Rebuild Switch games you own into native Linux apps for ARM handhelds</summary>
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>GPL-3.0-or-later</project_license>
+  <launchable type="desktop-id">peanuts-native.desktop</launchable>
+  <description><p>A Linux port of Peanuts Native for arm64 handhelds such as the AYN Thor running ArmadaOS. Bring your own keys, firmware and game dumps.</p></description>
+</component>

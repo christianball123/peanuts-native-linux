@@ -1,0 +1,10 @@
+#!/bin/sh
+# Peanuts Native for Linux (aarch64): starts the launcher with this AppImage's own libraries beside the system's.
+HERE="$(dirname "$(readlink -f "$0")")"
+export APPDIR="${APPDIR:-$HERE}"
+export LD_LIBRARY_PATH="$HERE/usr/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+case "$1" in
+    --play) shift; exec "$HERE/usr/bin/peanuts-run" "$@" ;;          # advanced: peanuts-run <pack folder> with the DM_* environment set by hand
+    --version) cat "$HERE/usr/share/peanuts-native/VERSION"; exit 0 ;;
+esac
+exec "$HERE/usr/bin/peanuts-native" "$@"
