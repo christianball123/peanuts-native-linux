@@ -126,8 +126,9 @@ B=$W RUNTIME=$DL/runtime-aarch64 SYSROOT=$PFX INTER=$W/inter STRIP=strip PYTHON_
   DOTNET_DIR=$W/conda/dotnet-runtime-10.0.15-h4dd03ba_1/lib/dotnet SPIRV_DIR=$W/conda/spirv-tools-2026.4-hde6636f_2 \
   UPSTREAM_COMMIT=$UP sh "$HERE/scripts/build_appimage.sh" "$VER" "$OUT/PeanutsNative-aarch64.AppImage"
 # the bundle check: every program starts and the TLS slot is where the packs expect it
-"$W/AppDir/usr/bin/peanuts-run" 2>&1 | grep -q "usage: peanuts-run" || { echo "peanuts-run does not start"; exit 1; }
-"$W/AppDir/usr/bin/peanuts-bottom" 2>&1 | grep -q "usage:" || { echo "peanuts-bottom does not start"; exit 1; }
+# (each prints its usage and exits non-zero: the output is kept and looked at, as pipefail would count the exit status)
+o=$("$W/AppDir/usr/bin/peanuts-run" 2>&1 || true); grep -q "usage: peanuts-run" <<<"$o" || { echo "peanuts-run does not start:"; echo "$o"; exit 1; }
+o=$("$W/AppDir/usr/bin/peanuts-bottom" 2>&1 || true); grep -q "usage:" <<<"$o" || { echo "peanuts-bottom does not start:"; echo "$o"; exit 1; }
 ( cd "$OUT" && sha256sum PeanutsNative-aarch64.AppImage > PeanutsNative-aarch64.AppImage.sha256 )
 printf 'peanuts-native\t%s\t%s\t%s\neden-duo-companions\t%s\nport\t%s\n' "$PNV" "$UP" "$UP_DATE" "$EDC" "$(cd "$HERE" && git rev-parse HEAD 2>/dev/null || echo unknown)" > "$OUT/upstream.txt"
 {
