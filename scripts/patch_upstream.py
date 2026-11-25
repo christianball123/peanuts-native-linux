@@ -81,6 +81,20 @@ EDITS = [
      '#else\n'
      '        op_hdr h; memcpy(&h, p, sizeof h);\n'
      '#endif\n'),
+    # Guest memory without the CPU cache (DM_VK_GUEST_UNCACHED=1): the memory type the GPU reads the game's pools from, chosen without HOST_CACHED. A test for
+    # Mystery Dungeon DX on the Thor (mainline msm + Turnip): CPU-written vertex data (posed models, text) torn on screen, worse the more pools are placed
+    ("dm/gfx/vk_android/vka_dev.c",
+     '    if (V.guest_type == UINT32_MAX) V.guest_type = vka_mem_type(~0u, HV, 0);\n',
+     '    if (V.guest_type == UINT32_MAX) V.guest_type = vka_mem_type(~0u, HV, 0);\n'
+     '#ifdef PEANUTS_LINUX   // PNL: DM_VK_GUEST_UNCACHED=1 (scripts/patch_upstream.py)\n'
+     '    { char tl[256] = ""; int k = 0; for (uint32_t i = 0; i < V.memp.memoryTypeCount && k < 200; i++) k += snprintf(tl + k, sizeof tl - k, " %u:%#x", i, V.memp.memoryTypes[i].propertyFlags);\n'
+     '      VLOG("memory types:%s", tl); }\n'
+     '    { const char *e = getenv("DM_VK_GUEST_UNCACHED"); if (e && atoi(e)) {\n'
+     '        uint32_t t = vka_mem_type(~0u, HV | VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, VK_MEMORY_PROPERTY_HOST_CACHED_BIT);\n'
+     '        if (t == UINT32_MAX) t = vka_mem_type(~0u, HV, VK_MEMORY_PROPERTY_HOST_CACHED_BIT);\n'
+     '        if (t != UINT32_MAX) { V.guest_type = t; VLOG("DM_VK_GUEST_UNCACHED=1: guest memory type %u (%#x), not cached by the CPU", t, V.memp.memoryTypes[t].propertyFlags); }\n'
+     '        else VRED("DM_VK_GUEST_UNCACHED=1: no host-visible coherent type without HOST_CACHED: guest memory type kept"); } }\n'
+     '#endif\n'),
     # ANativeWindow_setFrameRate is not in libnativewindow on Linux: the dlopen of it simply fails (no edit). The frame rate of the panel is the compositor's.
 ]
 
