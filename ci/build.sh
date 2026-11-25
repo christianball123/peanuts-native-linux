@@ -90,7 +90,7 @@ say ".NET 10 runtime and spirv-tools (conda-forge, linux-aarch64)"
 conda_pkg() {   # <file> <sha256> -> $W/conda/<name>
 	fetch "https://conda.anaconda.org/conda-forge/linux-aarch64/$1" "$1" "$2"
 	local d=$W/conda/${1%.conda}; rm -rf "$d" "$d.x"; mkdir -p "$d" "$d.x"
-	( cd "$d.x" && unzip -q "$DL/$1" && for t in pkg-*.tar.zst; do zstd -dq "$t" -o - | tar xf - -C "$d"; done ); rm -rf "$d.x"
+	( cd "$d.x" && unzip -q "$DL/$1" && for t in pkg-*.tar.zst; do zstd -dcq "$t" | tar xf - -C "$d"; done ); rm -rf "$d.x"
 }
 conda_pkg dotnet-runtime-10.0.15-h4dd03ba_1.conda "$(sed -n 's/^dotnet-runtime \(.*\)$/\1/p' "$HERE/ci/pins.txt")"
 conda_pkg spirv-tools-2026.4-hde6636f_2.conda "$(sed -n 's/^spirv-tools \(.*\)$/\1/p' "$HERE/ci/pins.txt")"

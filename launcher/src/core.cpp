@@ -553,6 +553,7 @@ pid_t play_start(const Game &g, std::string &log_path, std::string &error) {
     // Per game, found on the Thor (ArmadaOS, Mesa 26.3 Turnip); a game's extra environment comes later and wins
     static const std::pair<const char *, const char *> game_env[] = {
         {"01003D200BAA2000", "DM_VK_POOL_FB=0"},   // Mystery Dungeon DX: menu art, the "!" emote and the sky scrambled with the texture pool reads on
+        {"01003D200BAA2000", "DM_VK_CS_ASYNC=0"},  // Mystery Dungeon DX: models burst into spikes now and then with compute work (skinning) run beside the draws
     };
     for (auto &ge : game_env) if (g.tid == ge.first) env.push_back(ge.second);
     env.push_back("DM_VK_PSO_ASYNC=" + std::string(C.game(g.tid, "pso_async", "1") == "1" ? "2" : "0"));
