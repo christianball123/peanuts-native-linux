@@ -554,6 +554,7 @@ pid_t play_start(const Game &g, std::string &log_path, std::string &error) {
     static const std::pair<const char *, const char *> game_env[] = {
         {"01003D200BAA2000", "DM_VK_POOL_FB=0"},   // Mystery Dungeon DX: menu art, the "!" emote and the sky scrambled with the texture pool reads on
         {"01003D200BAA2000", "DM_VK_CS_ASYNC=0"},  // Mystery Dungeon DX: models burst into spikes now and then with compute work (skinning) run beside the draws
+        {"01003D200BAA2000", "DM_VK_GUEST_UNCACHED=1"}, // Mystery Dungeon DX: posed models (spikes) and text torn with the GPU reading the game's pools through CPU-cached memory on the Thor
     };
     for (auto &ge : game_env) if (g.tid == ge.first) env.push_back(ge.second);
     env.push_back("DM_VK_PSO_ASYNC=" + std::string(C.game(g.tid, "pso_async", "1") == "1" ? "2" : "0"));
