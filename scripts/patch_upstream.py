@@ -95,6 +95,23 @@ EDITS = [
      '        if (t != UINT32_MAX) { V.guest_type = t; VLOG("DM_VK_GUEST_UNCACHED=1: guest memory type %u (%#x), not cached by the CPU", t, V.memp.memoryTypes[t].propertyFlags); }\n'
      '        else VRED("DM_VK_GUEST_UNCACHED=1: no host-visible coherent type without HOST_CACHED: guest memory type kept"); } }\n'
      '#endif\n'),
+    # A program's shader key is made at its first draw, on the replay thread, from the guest program object's control and code pointers. Mystery Dungeon DX
+    # freed and reused a program object before that draw was replayed (4.5 minutes in, its control pointer read as 0x54fc934961660000): a pointer outside the
+    # guest address space now gives no key (the draw is skipped) instead of a crash
+    ("dm/gfx/nvn/hle_nvn.c",
+     '    if (!sd->control) return 0;\n'
+     '    nvn_ctl_lens(sd->control, &nctl, &ncode);\n'
+     '    int code = sd->data && ncode && ncode < (1u << 24);\n',
+     '    if (!sd->control) return 0;\n'
+     '#ifdef PEANUTS_LINUX   // PNL: pointers of a program object the game reused (scripts/patch_upstream.py)\n'
+     '    { int dm_guest_as_contains(uintptr_t a); uintptr_t ca = (uintptr_t)sd->control;\n'
+     '      if (!dm_guest_as_contains(ca) || !dm_guest_as_contains(ca + 0x880 - 1)) { static _Atomic int nr; if (atomic_fetch_add(&nr, 1) < 8) LOG("[RED] nvn: a program\'s control section at %#lx is outside guest memory (a program object reused before its draw was replayed?): no key, the draw is skipped", (unsigned long)ca); return 0; } }\n'
+     '#endif\n'
+     '    nvn_ctl_lens(sd->control, &nctl, &ncode);\n'
+     '    int code = sd->data && ncode && ncode < (1u << 24);\n'
+     '#ifdef PEANUTS_LINUX\n'
+     '    { int dm_guest_as_contains(uintptr_t a); uintptr_t da = (uintptr_t)sd->data; if (code && !(dm_guest_as_contains(da) && dm_guest_as_contains(da + ncode - 1))) code = 0; }\n'
+     '#endif\n'),
     # ANativeWindow_setFrameRate is not in libnativewindow on Linux: the dlopen of it simply fails (no edit). The frame rate of the panel is the compositor's.
 ]
 
