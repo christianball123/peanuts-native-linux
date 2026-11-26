@@ -95,6 +95,14 @@ EDITS = [
      '        if (t != UINT32_MAX) { V.guest_type = t; VLOG("DM_VK_GUEST_UNCACHED=1: guest memory type %u (%#x), not cached by the CPU", t, V.memp.memoryTypes[t].propertyFlags); }\n'
      '        else VRED("DM_VK_GUEST_UNCACHED=1: no host-visible coherent type without HOST_CACHED: guest memory type kept"); } }\n'
      '#endif\n'),
+    # (pnl_mapped: an address with a mapping under it; host memory counts: some control sections are the host's own copies)
+    ("dm/gfx/nvn/hle_nvn.c",
+     'static int keys_hash(const NVNshaderData *sd, int mapped, uint8_t out[8]) {\n',
+     '#ifdef PEANUTS_LINUX   // PNL (scripts/patch_upstream.py)\n'
+     '#include <sys/mman.h>\n'
+     'static int pnl_mapped(uintptr_t a) { if (a < 0x10000 || a >= (1ull << 48)) return 0; unsigned char v; return mincore((void *)(a & ~(uintptr_t)4095), 4096, &v) == 0; }\n'
+     '#endif\n'
+     'static int keys_hash(const NVNshaderData *sd, int mapped, uint8_t out[8]) {\n'),
     # A program's shader key is made at its first draw, on the replay thread, from the guest program object's control and code pointers. Mystery Dungeon DX
     # freed and reused a program object before that draw was replayed (4.5 minutes in, its control pointer read as 0x54fc934961660000): a pointer outside the
     # guest address space now gives no key (the draw is skipped) instead of a crash
@@ -104,13 +112,13 @@ EDITS = [
      '    int code = sd->data && ncode && ncode < (1u << 24);\n',
      '    if (!sd->control) return 0;\n'
      '#ifdef PEANUTS_LINUX   // PNL: pointers of a program object the game reused (scripts/patch_upstream.py)\n'
-     '    { int dm_guest_as_contains(uintptr_t a); uintptr_t ca = (uintptr_t)sd->control;\n'
-     '      if (!dm_guest_as_contains(ca) || !dm_guest_as_contains(ca + 0x880 - 1)) { static _Atomic int nr; if (atomic_fetch_add(&nr, 1) < 8) LOG("[RED] nvn: a program\'s control section at %#lx is outside guest memory (a program object reused before its draw was replayed?): no key, the draw is skipped", (unsigned long)ca); return 0; } }\n'
+     '    { uintptr_t ca = (uintptr_t)sd->control;\n'
+     '      if (!pnl_mapped(ca) || !pnl_mapped(ca + 0x880 - 1)) { static _Atomic int nr; if (atomic_fetch_add(&nr, 1) < 8) LOG("[RED] nvn: a program\'s control section at %#lx is not mapped (a program object reused before its draw was replayed?): no key, the draw is skipped", (unsigned long)ca); return 0; } }\n'
      '#endif\n'
      '    nvn_ctl_lens(sd->control, &nctl, &ncode);\n'
      '    int code = sd->data && ncode && ncode < (1u << 24);\n'
      '#ifdef PEANUTS_LINUX\n'
-     '    { int dm_guest_as_contains(uintptr_t a); uintptr_t da = (uintptr_t)sd->data; if (code && !(dm_guest_as_contains(da) && dm_guest_as_contains(da + ncode - 1))) code = 0; }\n'
+     '    { uintptr_t da = (uintptr_t)sd->data; if (code && !(pnl_mapped(da) && pnl_mapped(da + ncode - 1))) code = 0; }\n'
      '#endif\n'),
     # ANativeWindow_setFrameRate is not in libnativewindow on Linux: the dlopen of it simply fails (no edit). The frame rate of the panel is the compositor's.
 ]
