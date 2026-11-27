@@ -15,7 +15,8 @@ Bring your own `prod.keys`, firmware (optional) and game dumps. Nothing from Nin
 3. Setup: pick your `prod.keys` (keys from Eden, Ryujinx, yuzu and EmuDeck folders are found automatically), optionally your firmware
    (folder or `.zip`, for the console's fonts and Miis), and the folder with your `.nsp` / `.xci` / `.nsz` / `.xcz` / `.nup` files.
 4. Pick a game → **Build** (5–40 minutes on the Thor) → **Play**.
-5. In a game: hold **Select + Start** for 1.5 seconds to quit (Settings → *Quit a game* can make it L + R + Select + Start or L3 + R3; Shift+Esc on a keyboard). F11 toggles full screen.
+5. In a game: press **Select + Start** together for the in-game menu (Resume, Bottom screen shown / hidden, Frame rate cap, Frame rate counter, Quit game; D-pad or left stick to move, A to choose, B to close; F1 on a keyboard). The game keeps running behind it and gets no button presses while it is open.
+6. Hold **Select + Start** for 1.5 seconds to quit (Settings → *Quit a game* can make it L + R + Select + Start or L3 + R3; Shift+Esc on a keyboard). F11 toggles full screen.
 
 **Max clocks:** Settings → *Set up max clocks* installs a tiny root helper once (`/etc/peanuts-native/pn-clocks` and a sudoers rule
 for your user only), so every game runs with the CPU on the performance governor at its top frequency and the GPU at its top frequency,

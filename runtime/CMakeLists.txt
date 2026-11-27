@@ -108,7 +108,8 @@ target_compile_definitions(pnl_shim PRIVATE _GNU_SOURCE)
 
 # ---- peanuts-run: pnl_tls.c FIRST (its thread-local word must lead the executable's TLS segment: pnl_tls.c) ----
 # The host goes in whole (--whole-archive: its HLE tables are sections every object adds to, reached by no symbol), after pnl_tls.o and pnl_run.o
-add_executable(peanuts-run ${PNL}/pnl_tls.c ${PNL}/pnl_run.c)
+add_executable(peanuts-run ${PNL}/pnl_tls.c ${PNL}/pnl_run.c ${PNL}/pnl_menu.c)
+set_source_files_properties(${PNL}/pnl_menu.c PROPERTIES COMPILE_OPTIONS "-Wno-unused-function")   # (stb_truetype: the parts the menu does not use)
 target_include_directories(peanuts-run PRIVATE ${SHIM} ${PNL} ${HOST}/android ${HOST} ${PNL_PREFIX}/include)
 target_compile_options(peanuts-run PRIVATE -O2 -g -Wall)
 set_target_properties(peanuts-run PROPERTIES LINKER_LANGUAGE CXX)

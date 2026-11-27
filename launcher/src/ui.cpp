@@ -442,8 +442,9 @@ static void screen_game() {
             if (big_button("Game settings", bw)) { go(Screen::GameSettings); g_focus_first = true; }
             if (big_button("Build again", bw)) start_build(g, false);
             { std::string q = C.get("quit_combo", "1");
-              const char *t = q == "1" ? "To quit while playing: hold Select + Start" : q == "2" ? "To quit while playing: hold L + R + Select + Start" : q == "3" ? "To quit while playing: hold L3 + R3 (press both sticks)" : nullptr;
-              if (t) { ImGui::PushFont(F_REG, px(20)); ImGui::PushStyleColor(ImGuiCol_Text, v4(C_DIM)); ImGui::PushTextWrapPos(ImGui::GetCursorPosX() + bw); ImGui::TextWrapped("%s", t); ImGui::PopTextWrapPos(); ImGui::PopStyleColor(); ImGui::PopFont(); } }
+              const char *qt = q == "1" ? "To quit: hold Select + Start" : q == "2" ? "To quit: hold L + R + Select + Start" : q == "3" ? "To quit: hold L3 + R3 (press both sticks)" : "";
+              std::string ts = std::string("In-game menu: press Select + Start together") + (*qt ? std::string("\n") + qt : std::string()); const char *t = ts.c_str();
+              { ImGui::PushFont(F_REG, px(20)); ImGui::PushStyleColor(ImGuiCol_Text, v4(C_DIM)); ImGui::PushTextWrapPos(ImGui::GetCursorPosX() + bw); ImGui::TextWrapped("%s", t); ImGui::PopTextWrapPos(); ImGui::PopStyleColor(); ImGui::PopFont(); } }
         } else {
             bool can = !(g_job && g_job->running);
             if (big_button(g.state == GameState::NeedsRebuild ? "Build again" : "Build", bw, true, can && (g.is_nup || !g.base.empty()))) start_build(g, g.state == GameState::NeedsRebuild);

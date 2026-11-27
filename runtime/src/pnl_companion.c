@@ -49,6 +49,8 @@ static pid_t g_helper = -1;
 static atomic_int g_stop;
 static pthread_t g_thread;
 static int g_started;
+atomic_int pnl_bottom_blank;   /* the in-game menu's Bottom screen: Hidden (pnl_menu.c): a black frame, fingers not passed on */
+int pnl_companion_active(void) { return g_started && g_map && (g_helper > 0 || g_helper == -2); }
 
 static void sleep_ms(int ms) { struct timespec t = { ms / 1000, (long)(ms % 1000) * 1000000L }; nanosleep(&t, NULL); }
 static long long now_ms(void) { struct timespec t; clock_gettime(CLOCK_MONOTONIC, &t); return (long long)t.tv_sec * 1000 + t.tv_nsec / 1000000; }
@@ -137,7 +139,7 @@ static void *companion_thread(void *arg) {
     int tries = 0, via_armada = 0;
     pid_t child = -1;
     long long adopt_until = 0;
-    uint32_t ready_seen = 0, panel_w = 0, panel_h = 0, touch_tail = 0;
+    uint32_t ready_seen = 0, panel_w = 0, panel_h = 0, touch_tail = 0; int blank_sent = 0;
     int presented = 0;
     uint64_t seq = 0;
     long long next_spawn = 0, last_log = 0;
@@ -187,8 +189,17 @@ static void *companion_thread(void *arg) {
             nxhost_peanuts_panel((int)pw, (int)ph);
         }
 
+        /* Hidden from the in-game menu: one black frame, then nothing until it is shown again */
+        int blank = atomic_load(&pnl_bottom_blank);
+        if (presented && blank && !blank_sent) {
+            memset(pnb_pixels(g_map, seq + 1), 0, 64 * 64 * 4);
+            PNB_STORE32(&h->frame_w, 64u); PNB_STORE32(&h->frame_h, 64u);
+            seq++; PNB_STORE64(&h->frame_seq, seq); blank_sent = 1;
+        }
+        if (!blank && blank_sent) { blank_sent = 0; nxhost_peanuts_frame_again(); }
+
         /* Frames: the host counts these calls as the page being looked at. */
-        if (presented) {
+        if (presented && !blank) {
             int fw = 0, fh = 0;
             nxhost_peanuts_frame_size(&fw, &fh);
             if (fw > 0 && fh > 0 && fw <= PNB_MAX_W && fh <= PNB_MAX_H) {
@@ -211,7 +222,7 @@ static void *companion_thread(void *arg) {
         while (touch_tail != head) {
             pnb_touch t = h->touch[touch_tail % PNB_TOUCH_RING];
             touch_tail++;
-            if (presented) nxhost_peanuts_touch(t.id, t.x, t.y, t.down);
+            if (presented && !blank) nxhost_peanuts_touch(t.id, t.x, t.y, t.down);
         }
 
         /* Haptic pulses from the page go to the controller. */

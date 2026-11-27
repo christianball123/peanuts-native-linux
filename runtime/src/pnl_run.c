@@ -23,6 +23,7 @@
 #include <sys/wait.h>
 #include <unistd.h>
 #include "input_map.h"   // Android's key, axis and touch numbers (dm/host/android)
+#include "pnl_menu.h"
 
 // ---- The host's launcher interface (dm/host/android/input_android.h, dm/gfx/vk_android/vk_android.h, dm/peanuts) ----
 int nxhost_main(int argc, char **argv);
@@ -62,7 +63,7 @@ static void *host_thread(void *p) {
 
 // ---- Controllers ----
 #define MAXPAD 8
-static struct { SDL_Gamepad *gp; SDL_JoystickID id; int has_accel, has_gyro, rumble; float acc[3]; int have_acc; Uint32 held; Uint64 combo_since; } g_pads[MAXPAD];
+static struct { SDL_Gamepad *gp; SDL_JoystickID id; int has_accel, has_gyro, rumble; float acc[3]; int have_acc; Uint32 held; Uint64 combo_since; Uint32 pend; Uint64 pend_since; Uint64 menu_since; int stick_dir; } g_pads[MAXPAD];
 static int g_labelled;   // 1 = PNL_LAYOUT=xbox
 static int pad_slot(SDL_JoystickID id) { for (int i = 0; i < MAXPAD; i++) if (g_pads[i].gp && g_pads[i].id == id) return i; return -1; }
 static int button_key(SDL_GamepadButton b) {
@@ -118,6 +119,16 @@ static float axis_value(SDL_GamepadAxis a, Sint16 v) {
     return v < 0 ? v / 32768.f : v / 32767.f;
 }
 static void pad_axis(SDL_JoystickID id, SDL_GamepadAxis a, Sint16 v) {
+    if (pnl_menu_is_open()) {   // the left stick moves through the menu (an edge past half way), the game gets nothing
+        int s = pad_slot(id); if (s < 0 || (a != SDL_GAMEPAD_AXIS_LEFTX && a != SDL_GAMEPAD_AXIS_LEFTY)) return;
+        int d = v > 16000 ? 1 : v < -16000 ? -1 : 0, code = a == SDL_GAMEPAD_AXIS_LEFTY ? (d > 0 ? 2 : 1) : (d > 0 ? 4 : 3);
+        int key = a == SDL_GAMEPAD_AXIS_LEFTY ? 0 : 8;   // stick_dir: bits 0-3 the vertical, 8-11 the horizontal direction held
+        int was = g_pads[s].stick_dir >> key & 15;
+        if (d && was != code) { g_pads[s].stick_dir = (g_pads[s].stick_dir & ~(15 << key)) | code << key;
+            pnl_menu_input(code == 1 ? PNL_IN_UP : code == 2 ? PNL_IN_DOWN : code == 3 ? PNL_IN_LEFT : PNL_IN_RIGHT); }
+        if (!d && (v > -8000 && v < 8000)) g_pads[s].stick_dir &= ~(15 << key);
+        return;
+    }
     int ax;
     switch (a) {
     case SDL_GAMEPAD_AXIS_LEFTX: ax = AA_X; break;
@@ -233,6 +244,27 @@ void pnl_companion_stop(void);
 // ---- Quitting ----
 static _Atomic int g_quit;
 static void on_term(int sig) { (void)sig; atomic_store(&g_quit, 1); }
+// The game sees every button and stick let go (the in-game menu opens: its presses are the menu's)
+static void release_all(void) {
+    static const int axes[] = {AA_X, AA_Y, AA_Z, AA_RZ, AA_LTRIGGER, AA_RTRIGGER};
+    for (int i = 0; i < MAXPAD; i++) if (g_pads[i].gp) {
+        for (int b = 0; b < 32; b++) if (g_pads[i].held >> b & 1) { int k = button_key((SDL_GamepadButton)b); if (k >= 0) nxhost_input_key((int)g_pads[i].id, k, false); }
+        float z[6] = {0}; nxhost_input_axes((int)g_pads[i].id, (int *)axes, z, 6);
+        nxhost_input_key((int)g_pads[i].id, AK_BUTTON_L2, false); nxhost_input_key((int)g_pads[i].id, AK_BUTTON_R2, false);
+        g_pads[i].pend = 0; g_pads[i].stick_dir = 0;
+    }
+}
+static int g_menu_confirm, g_menu_back;   // the menu's A and B: the Switch's by position (right / bottom), or by label with PNL_LAYOUT=xbox
+static int menu_button(int b) {
+    if (b == SDL_GAMEPAD_BUTTON_DPAD_UP) return PNL_IN_UP;
+    if (b == SDL_GAMEPAD_BUTTON_DPAD_DOWN) return PNL_IN_DOWN;
+    if (b == SDL_GAMEPAD_BUTTON_DPAD_LEFT) return PNL_IN_LEFT;
+    if (b == SDL_GAMEPAD_BUTTON_DPAD_RIGHT) return PNL_IN_RIGHT;
+    if (b == g_menu_confirm) return PNL_IN_OK;
+    if (b == g_menu_back) return PNL_IN_BACK;
+    return -1;
+}
+
 static void quit_now(int code) {
     note("leaving the game");
     pnl_companion_stop();
@@ -279,6 +311,9 @@ int main(int argc, char **argv) {
     ANativeWindow *nw = pnl_window_wrap(win);
     int pw = 0, ph = 0; SDL_GetWindowSizeInPixels(win, &pw, &ph);
     note("window %dx%d on display %d (%s)", pw, ph, di, SDL_GetCurrentVideoDriver());
+    pnl_menu_init(pw, ph, wt);
+    g_menu_confirm = g_labelled ? SDL_GAMEPAD_BUTTON_SOUTH : SDL_GAMEPAD_BUTTON_EAST;
+    g_menu_back = g_labelled ? SDL_GAMEPAD_BUTTON_EAST : SDL_GAMEPAD_BUTTON_SOUTH;
 
     // the host's side, set before it starts
     nxhost_touch_controls_enable(false);   // no on-screen controls: every touch goes to the game
@@ -303,24 +338,50 @@ int main(int argc, char **argv) {
                            : quit_combo == 3 ? PB(LEFT_STICK) | PB(RIGHT_STICK) : 0;
     static const char *const quit_names[] = {"", "Back + Start", "L + R + Back + Start", "L3 + R3"};
     if (quit_mask) note("to quit: hold %s for 1.5 seconds", quit_names[quit_combo]);
+    note("in-game menu: press Start + Select together");
+    const Uint32 menu_mask = PB(BACK) | PB(START), shoulders = PB(LEFT_SHOULDER) | PB(RIGHT_SHOULDER);
     SDL_WindowID wid = SDL_GetWindowID(win);
     while (!atomic_load(&g_quit)) {
         SDL_Event e;
-        if (!SDL_WaitEventTimeout(&e, 100)) e.type = 0;
+        if (!SDL_WaitEventTimeout(&e, 25)) e.type = 0;
         do {
             switch (e.type) {
             case SDL_EVENT_QUIT: case SDL_EVENT_WINDOW_CLOSE_REQUESTED: atomic_store(&g_quit, 1); break;
-            case SDL_EVENT_WINDOW_PIXEL_SIZE_CHANGED: if (e.window.windowID == wid) { pnl_window_set_size(nw, e.window.data1, e.window.data2); touch_layout(e.window.data1, e.window.data2); } break;
+            case SDL_EVENT_WINDOW_PIXEL_SIZE_CHANGED: if (e.window.windowID == wid) { pnl_window_set_size(nw, e.window.data1, e.window.data2); touch_layout(e.window.data1, e.window.data2); pnl_menu_resize(e.window.data1, e.window.data2); } break;
             case SDL_EVENT_GAMEPAD_ADDED: pad_add(e.gdevice.which); break;
             case SDL_EVENT_GAMEPAD_REMOVED: pad_remove(e.gdevice.which); break;
             case SDL_EVENT_GAMEPAD_BUTTON_DOWN: case SDL_EVENT_GAMEPAD_BUTTON_UP: {
                 bool down = e.type == SDL_EVENT_GAMEPAD_BUTTON_DOWN; int k = button_key((SDL_GamepadButton)e.gbutton.button);
-                int s = pad_slot(e.gbutton.which);
-                if (s >= 0 && quit_mask && e.gbutton.button < 32) {
-                    Uint32 was = g_pads[s].held & quit_mask;
-                    if (down) g_pads[s].held |= 1u << e.gbutton.button; else g_pads[s].held &= ~(1u << e.gbutton.button);
+                int s = pad_slot(e.gbutton.which), b = e.gbutton.button;
+                if (s < 0 || b >= 32) { if (k >= 0 && !pnl_menu_is_open()) nxhost_input_key((int)e.gbutton.which, k, down); break; }
+                Uint32 bit = 1u << b, was_held = g_pads[s].held;
+                if (down) g_pads[s].held |= bit; else g_pads[s].held &= ~bit;
+                int swallow = g_pads[s].menu_since && (bit & menu_mask) && !down;   // the combo's buttons let go after it opened or closed the menu
+                if (!(g_pads[s].held & menu_mask)) g_pads[s].menu_since = 0;
+                if (quit_mask) {
+                    Uint32 was = was_held & quit_mask;
                     if ((g_pads[s].held & quit_mask) == quit_mask && was != quit_mask) g_pads[s].combo_since = SDL_GetTicks();
                     if ((g_pads[s].held & quit_mask) != quit_mask) g_pads[s].combo_since = 0;
+                }
+                // Start + Select together (no shoulder held: that is the quit combo) opens or closes the menu
+                if ((g_pads[s].held & menu_mask) == menu_mask && !(g_pads[s].held & shoulders)) {
+                    if ((was_held & menu_mask) != menu_mask) {
+                        g_pads[s].pend &= ~menu_mask;   // the first of the two, held back, never reaches the game
+                        if (!pnl_menu_is_open()) { pnl_menu_open(); if (pnl_menu_is_open()) release_all(); } else pnl_menu_close();
+                        g_pads[s].menu_since = SDL_GetTicks();
+                    }
+                    break;
+                }
+                if (pnl_menu_is_open()) {   // the menu takes the presses
+                    if (bit & menu_mask) break;
+                    if (down) { int m = menu_button(b); if (m >= 0 && pnl_menu_input(m) == PNL_MENU_QUIT) { note("quit from the in-game menu"); atomic_store(&g_quit, 1); } }
+                    break;
+                }
+                if (swallow) break;
+                // Start or Select alone reaches the game a moment late (120 ms), so the combo's first button does not
+                if ((bit & menu_mask) && !(g_pads[s].held & shoulders)) {
+                    if (down) { g_pads[s].pend |= bit; g_pads[s].pend_since = SDL_GetTicks(); break; }
+                    if (g_pads[s].pend & bit) { g_pads[s].pend &= ~bit; if (k >= 0) { nxhost_input_key((int)e.gbutton.which, k, true); nxhost_input_key((int)e.gbutton.which, k, false); } break; }   // a quick tap
                 }
                 if (k >= 0) nxhost_input_key((int)e.gbutton.which, k, down);
                 break; }
@@ -341,6 +402,14 @@ int main(int argc, char **argv) {
             case SDL_EVENT_KEY_DOWN: case SDL_EVENT_KEY_UP:
                 if (e.type == SDL_EVENT_KEY_DOWN && e.key.key == SDLK_F11) { SDL_SetWindowFullscreen(win, !(SDL_GetWindowFlags(win) & SDL_WINDOW_FULLSCREEN)); break; }
                 if (e.type == SDL_EVENT_KEY_DOWN && e.key.key == SDLK_ESCAPE && (e.key.mod & SDL_KMOD_SHIFT)) { atomic_store(&g_quit, 1); break; }
+                if (e.type == SDL_EVENT_KEY_DOWN && e.key.key == SDLK_F1) { pnl_menu_toggle(); break; }
+                if (pnl_menu_is_open()) {
+                    if (e.type != SDL_EVENT_KEY_DOWN) break;
+                    int m = e.key.key == SDLK_UP ? PNL_IN_UP : e.key.key == SDLK_DOWN ? PNL_IN_DOWN : e.key.key == SDLK_LEFT ? PNL_IN_LEFT : e.key.key == SDLK_RIGHT ? PNL_IN_RIGHT
+                          : e.key.key == SDLK_RETURN || e.key.key == SDLK_Z ? PNL_IN_OK : e.key.key == SDLK_ESCAPE || e.key.key == SDLK_X ? PNL_IN_BACK : -1;
+                    if (m >= 0 && pnl_menu_input(m) == PNL_MENU_QUIT) atomic_store(&g_quit, 1);
+                    break;
+                }
                 if (!e.key.repeat) kbd_key(e.key.key, e.type == SDL_EVENT_KEY_DOWN);
                 break;
             case SDL_EVENT_AUDIO_DEVICE_ADDED: case SDL_EVENT_AUDIO_DEVICE_REMOVED: if (!e.adevice.recording) nxhost_audio_route_changed(); break;
@@ -348,6 +417,11 @@ int main(int argc, char **argv) {
             }
         } while (!atomic_load(&g_quit) && SDL_PollEvent(&e));
         Uint64 now = SDL_GetTicks();
+        for (int i = 0; i < MAXPAD; i++) if (g_pads[i].gp && g_pads[i].pend && now - g_pads[i].pend_since >= 120) {   // Start / Select alone: to the game now
+            for (int b = 0; b < 32; b++) if (g_pads[i].pend >> b & 1) { int k = button_key((SDL_GamepadButton)b); if (k >= 0) nxhost_input_key((int)g_pads[i].id, k, true); }
+            g_pads[i].pend = 0;
+        }
+        pnl_menu_tick(now);
         if (quit_mask) for (int i = 0; i < MAXPAD; i++) if (g_pads[i].gp && g_pads[i].combo_since && now - g_pads[i].combo_since >= 1500) {
             note("%s held: quitting", quit_names[quit_combo]); atomic_store(&g_quit, 1);
         }
